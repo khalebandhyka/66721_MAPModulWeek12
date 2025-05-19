@@ -11,13 +11,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.example.bluromatic.DELAY_TIME_MILLIS
 import kotlinx.coroutines.delay
+import com.example.bluromatic.KEY_BLUR_LEVEL
+import com.example.bluromatic.KEY_IMAGE_URI
+import android.net.Uri
+import androidx.work.workDataOf
 
 
 private const val TAG = "BlurWorker"
 
+
 class BlurWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
+        val resourceUri = inputData.getString(KEY_IMAGE_URI)
+        val blurLevel = inputData.getInt(KEY_BLUR_LEVEL, 1)
         makeStatusNotification(
             applicationContext.resources.getString(R.string.blurring_image),
             applicationContext
@@ -26,22 +33,26 @@ class BlurWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         return withContext(Dispatchers.IO) {
 
             return@withContext try {
+                require(!resourceUri.isNullOrBlank()) {
+                    val errorMessage =
+                        applicationContext.resources.getString(R.string.invalid_input_uri)
+                    Log.e(TAG, errorMessage)
+                    errorMessage
+                }
+                val resolver = applicationContext.contentResolver
+
+
                 delay(DELAY_TIME_MILLIS)
-                val picture = BitmapFactory.decodeResource(
-                    applicationContext.resources,
-                    R.drawable.android_cupcake
+                val picture = BitmapFactory.decodeStream(
+                    resolver.openInputStream(Uri.parse(resourceUri))
                 )
 
-                val output = blurBitmap(picture, 1)
+                val output = blurBitmap(picture, blurLevel)
 
                 val outputUri = writeBitmapToFile(applicationContext, output)
+                val outputData = workDataOf(KEY_IMAGE_URI to outputUri.toString())
 
-                makeStatusNotification(
-                    "Output is $outputUri",
-                    applicationContext
-                )
-
-                Result.success()
+                Result.success(outputData)
             } catch (throwable: Throwable) {
                 Log.e(
                     TAG,
